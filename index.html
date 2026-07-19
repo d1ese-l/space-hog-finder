@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Space Hog Finder — find files nobody has touched</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+  :root{
+    --bg:#0c2440;
+    --bg-panel:#11304f;
+    --bg-panel-light:#153a5f;
+    --bg-raised:#1a4570;
+    --grid-line:rgba(133,168,196,0.10);
+    --line:rgba(133,168,196,0.28);
+    --line-strong:rgba(160,196,224,0.55);
+    --ink:#eaf2fa;
+    --ink-muted:#84a7c4;
+    --ink-dim:#5c7f9c;
+    --amber:#e8a33d;
+    --amber-dim:rgba(232,163,61,0.16);
+    --teal:#57b8ad;
+    --danger:#d9704a;
+    --radius:2px;
+    --mono:'JetBrains Mono', ui-monospace, monospace;
+    --sans:'Inter', system-ui, sans-serif;
+    --display:'Big Shoulders Display', 'Inter', sans-serif;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    background-image:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 28px 28px;
+    color:var(--ink);
+    font-family:var(--sans);
+    min-height:100vh;
+    padding:20px;
+  }
+
+  ::selection{ background:var(--amber-dim); color:var(--ink); }
+  :focus-visible{ outline:2px solid var(--amber); outline-offset:2px; }
+
+  .wrap{ max-width:1080px; margin:0 auto; }
+
+  /* ---------- panel + corner registration marks (signature motif) ---------- */
+  .panel{
+    position:relative;
+    background:var(--bg-panel);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:20px 22px;
+    margin-bottom:16px;
+  }
+  .panel::before, .panel::after{
+    content:"";
+    position:absolute;
+    width:12px; height:12px;
+    pointer-events:none;
+  }
+  .panel::before{ top:-1px; left:-1px; border-top:1px solid var(--line-strong); border-left:1px solid var(--line-strong); }
+  .panel::after{ bottom:-1px; right:-1px; border-bottom:1px solid var(--line-strong); border-right:1px solid var(--line-strong); }
+
+  .eyebrow{
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:0.14em;
+    text-transform:uppercase;
+    color:var(--ink-dim);
+    margin:0 0 6px 0;
+  }
+
+  /* ---------- header / title block ---------- */
+  .titleblock{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    gap:20px;
+    flex-wrap:wrap;
+  }
+  .titleblock h1{
+    font-family:var(--display);
+    font-weight:800;
+    font-size:40px;
+    letter-spacing:0.01em;
+    line-height:1;
+    margin:6px 0 8px 0;
+    color:var(--ink);
+  }
+  .titleblock p{
+    margin:0;
+    color:var(--ink-muted);
+    font-size:14.5px;
+    max-width:46ch;
+  }
+  .stamp{
+    font-family:var(--mono);
+    font-size:11.5px;
+    color:var(--ink-muted);
+    text-align:right;
+    line-height:1.9;
+    border-left:1px solid var(--line);
+    padding-left:16px;
+    white-space:nowrap;
+  }
+  .stamp b{ color:var(--amber); font-weight:600; }
+  .stamp .dot{ color:var(--ink-dim); }
+
+  /* ---------- drop zone ---------- */
+  .dropzone{
+    text-align:center;
+    padding:44px 22px;
+    border:1px dashed var(--line-strong);
+    background:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size:16px 16px;
+    background-color:var(--bg-panel-light);
+  }
+  .dropzone svg{ width:40px; height:40px; color:var(--ink-muted); margin-bottom:14px; }
+  .dropzone h2{
+    font-family:var(--display);
+    font-size:22px;
+    font-weight:700;
+    margin:0 0 8px 0;
+    letter-spacing:0.02em;
+  }
+  .dropzone .hint{ color:var(--ink-dim); font-size:13px; margin:10px 0 0 0; }
+
+  .btn{
+    font-family:var(--sans);
+    font-weight:600;
+    font-size:14px;
+    letter-spacing:0.01em;
+    color:var(--bg);
+    background:var(--amber);
+    border:none;
+    padding:12px 22px;
+    border-radius:var(--radius);
+    cursor:pointer;
+    transition:filter 0.15s ease, transform 0.05s ease;
+  }
+  .btn:hover{ filter:brightness(1.08); }
+  .btn:active{ transform:translateY(1px); }
+  .btn.ghost{
+    background:transparent;
+    color:var(--ink-muted);
+    border:1px solid var(--line-strong);
+    font-weight:500;
+  }
+  .btn.ghost:hover{ color:var(--ink); border-color:var(--ink-muted); }
+  .btn.small{ padding:7px 14px; font-size:12.5px; }
+
+  /* ---------- loaded strip (replaces dropzone after a scan) ---------- */
+  .loaded-strip{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+    flex-wrap:wrap;
+    background:var(--bg-panel-light);
+    padding:16px 20px;
+    border:1px solid var(--line);
+  }
+  .loaded-strip .info{ font-family:var(--mono); font-size:13px; color:var(--ink-muted); }
+  .loaded-strip .info b{ color:var(--ink); }
+
+  /* ---------- scanning sweep ---------- */
+  .sweep-wrap{
+    height:6px; border:1px solid var(--line); overflow:hidden; position:relative; margin-top:14px;
+    background:var(--bg-panel);
+  }
+  .sweep-bar{
+    position:absolute; top:0; left:-40%; width:40%; height:100%;
+    background:linear-gradient(90deg, transparent, var(--amber), transparent);
+    animation:sweep 1.1s linear infinite;
+  }
+  @keyframes sweep{ from{ left:-40%; } to{ left:100%; } }
+  @media (prefers-reduced-motion: reduce){ .sweep-bar{ animation:none; left:0; } }
+
+  /* ---------- thresholds ---------- */
+  .thresholds-grid{ display:grid; grid-template-columns:1fr 1fr; gap:26px; }
+  @media (max-width:640px){ .thresholds-grid{ grid-template-columns:1fr; } }
+
+  .slider-row label{
+    display:flex; justify-content:space-between; align-items:baseline;
+    font-size:13px; color:var(--ink-muted); margin-bottom:10px;
+  }
+  .slider-row label .val{ font-family:var(--mono); color:var(--amber); font-size:14px; font-weight:700; }
+  input[type="range"]{
+    -webkit-appearance:none; appearance:none;
+    width:100%; height:2px; background:var(--line-strong);
+    outline:none; margin:0;
+  }
+  input[type="range"]::-webkit-slider-thumb{
+    -webkit-appearance:none; appearance:none;
+    width:16px; height:16px; border-radius:50%;
+    background:var(--amber); border:2px solid var(--bg);
+    box-shadow:0 0 0 1px var(--amber);
+    cursor:pointer; margin-top:-7px;
+  }
+  input[type="range"]::-moz-range-thumb{
+    width:16px; height:16px; border-radius:50%;
+    background:var(--amber); border:2px solid var(--bg);
+    box-shadow:0 0 0 1px var(--amber);
+    cursor:pointer;
+  }
+  input[type="range"]::-moz-range-track{ height:2px; background:var(--line-strong); }
+
+  .presets{ display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }
+  .pill{
+    font-family:var(--mono);
+    font-size:11.5px;
+    color:var(--ink-muted);
+    background:var(--bg-panel-light);
+    border:1px solid var(--line);
+    padding:7px 12px;
+    border-radius:20px;
+    cursor:pointer;
+    transition:all 0.12s ease;
+  }
+  .pill:hover{ border-color:var(--amber); color:var(--ink); }
+  .pill.active{ background:var(--amber-dim); border-color:var(--amber); color:var(--amber); }
+
+  /* ---------- exclusions ---------- */
+  .excl-row{ display:flex; gap:8px; flex-wrap:wrap; }
+  .excl-row input[type="text"]{
+    flex:1; min-width:200px;
+    font-family:var(--mono); font-size:12.5px; color:var(--ink);
+    background:var(--bg-panel-light); border:1px solid var(--line-strong);
+    padding:9px 12px; border-radius:var(--radius); outline:none;
+  }
+  .excl-row input[type="text"]::placeholder{ color:var(--ink-dim); }
+  .excl-row input[type="text"]:focus{ border-color:var(--amber); }
+  .excl-list{ display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+  .excl-pill{
+    display:flex; align-items:center; gap:8px;
+    font-family:var(--mono); font-size:11.5px; color:var(--amber);
+    background:var(--amber-dim); border:1px solid var(--amber);
+    padding:6px 8px 6px 12px; border-radius:20px;
+  }
+  .excl-pill button{
+    all:unset; cursor:pointer; color:var(--amber); font-size:14px; line-height:1;
+    width:16px; height:16px; display:flex; align-items:center; justify-content:center;
+    border-radius:50%;
+  }
+  .excl-pill button:hover{ background:var(--amber); color:var(--bg); }
+  .excl-stats{ font-family:var(--mono); font-size:11px; color:var(--ink-dim); margin-top:12px; }
+  .excl-empty{ font-family:var(--mono); font-size:12px; color:var(--ink-dim); margin-top:12px; }
+  .excl-btn{
+    all:unset; cursor:pointer; flex-shrink:0;
+    font-family:var(--mono); font-size:10.5px; color:var(--ink-dim);
+    border:1px solid var(--line); padding:4px 8px; border-radius:20px;
+    white-space:nowrap;
+  }
+  .excl-btn:hover{ color:var(--danger); border-color:var(--danger); }
+
+  /* ---------- summary stamps ---------- */
+  .stamps-row{ display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+  @media (max-width:720px){ .stamps-row{ grid-template-columns:1fr; } }
+  .stamp-box{ padding:16px 18px 14px 18px; }
+  .stamp-box .label{ font-family:var(--mono); font-size:10.5px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ink-dim); }
+  .stamp-box .big{ font-family:var(--display); font-size:30px; font-weight:700; color:var(--ink); margin-top:6px; line-height:1; }
+  .stamp-box .big.amber{ color:var(--amber); }
+  .stamp-box .sub{ font-family:var(--mono); font-size:11.5px; color:var(--ink-muted); margin-top:6px; }
+
+  /* ---------- chart ---------- */
+  .chart-title{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:16px; }
+  .chart-title h3{ font-family:var(--display); font-size:18px; font-weight:700; margin:0; letter-spacing:0.02em; }
+  .chart-title span{ font-family:var(--mono); font-size:11px; color:var(--ink-dim); }
+  .bar-row{ display:flex; align-items:center; gap:10px; margin-bottom:7px; }
+  .bar-label{
+    width:220px; flex-shrink:0; font-family:var(--mono); font-size:11.5px; color:var(--ink-muted);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .bar-track{ flex:1; background:var(--grid-line); height:16px; position:relative; }
+  .bar-fill{ height:100%; background:linear-gradient(90deg, var(--amber), #f2c069); min-width:2px; }
+  .bar-size{ width:70px; flex-shrink:0; text-align:right; font-family:var(--mono); font-size:11.5px; color:var(--ink); }
+
+  /* ---------- table ---------- */
+  .table-wrap{ overflow-x:auto; }
+  table{ width:100%; border-collapse:collapse; font-size:13px; min-width:680px; }
+  thead th{
+    text-align:left; font-family:var(--mono); font-size:10.5px; letter-spacing:0.08em;
+    text-transform:uppercase; color:var(--ink-dim); font-weight:500;
+    padding:0 10px 10px 10px; border-bottom:1px solid var(--line-strong);
+    cursor:pointer; user-select:none; white-space:nowrap;
+  }
+  thead th:hover{ color:var(--ink); }
+  thead th .arrow{ color:var(--amber); margin-left:3px; }
+  tbody tr{ border-bottom:1px solid var(--grid-line); }
+  tbody tr.file-row:hover, tbody tr.group-row:hover{ background:var(--bg-panel-light); }
+  tbody tr.group-row{ cursor:pointer; }
+  td{ padding:10px; vertical-align:top; }
+  .name-cell{ display:flex; align-items:center; gap:8px; max-width:320px; }
+  .chev{
+    display:inline-flex; width:14px; height:14px; flex-shrink:0; color:var(--ink-dim);
+    transition:transform 0.15s ease;
+  }
+  .chev.open{ transform:rotate(90deg); }
+  .fname{ font-family:var(--mono); color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tag{
+    font-family:var(--mono); font-size:10px; color:var(--teal); background:rgba(87,184,173,0.12);
+    border:1px solid rgba(87,184,173,0.35); padding:1px 6px; border-radius:20px; flex-shrink:0;
+  }
+  .path-cell{ font-family:var(--mono); font-size:11.5px; color:var(--ink-dim); max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .size-cell{ font-family:var(--mono); color:var(--amber); font-weight:600; white-space:nowrap; }
+  .age-cell{ font-family:var(--mono); color:var(--ink-muted); white-space:nowrap; }
+  tr.sub-row td{ background:var(--bg-panel-light); }
+  tr.sub-row .fname{ color:var(--ink-muted); }
+  tr.sub-row .size-cell{ color:var(--ink-muted); font-weight:400; }
+
+  .empty-state{ text-align:center; padding:40px 20px; color:var(--ink-dim); font-family:var(--mono); font-size:13px; }
+
+  .footer-row{ display:flex; justify-content:space-between; align-items:center; margin-top:16px; flex-wrap:wrap; gap:10px; }
+  .note{ font-family:var(--mono); font-size:11px; color:var(--ink-dim); max-width:60ch; }
+  .note b{ color:var(--ink-muted); }
+
+  .hidden{ display:none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- TITLE BLOCK -->
+  <div class="panel titleblock">
+    <div>
+      <div class="eyebrow">Local disk survey · client-side only</div>
+      <h1>SPACE HOG FINDER</h1>
+      <p>Scan a folder and surface the large, old files nobody has opened in a while.</p>
+    </div>
+    <div class="stamp" id="stampBox">
+      STATUS: <b id="stampStatus">AWAITING FOLDER</b><br>
+      FILES SCANNED: <span id="stampCount">—</span><br>
+      LAST SCAN: <span id="stampDate">—</span>
+    </div>
+  </div>
+
+  <!-- DROP ZONE / LOADED STRIP -->
+  <div class="panel" id="dropPanel">
+    <div class="dropzone" id="dropzone">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/>
+      </svg>
+      <h2>Select a folder to scan</h2>
+      <p class="hint">Nothing is uploaded — the scan runs entirely in this browser tab.</p>
+      <div style="margin-top:18px;">
+        <button class="btn" id="pickBtn">Choose folder</button>
+      </div>
+      <div class="sweep-wrap hidden" id="sweepWrap"><div class="sweep-bar"></div></div>
+      <p class="hint" id="scanningLabel" style="display:none;">Reading files…</p>
+    </div>
+    <input type="file" id="folderInput" webkitdirectory directory multiple style="display:none">
+  </div>
+
+  <!-- MAIN RESULTS (hidden until a scan completes) -->
+  <div id="results" class="hidden">
+
+    <!-- THRESHOLDS -->
+    <div class="panel">
+      <div class="eyebrow">Thresholds</div>
+      <div class="thresholds-grid">
+        <div class="slider-row">
+          <label>Minimum size <span class="val" id="sizeVal">—</span></label>
+          <input type="range" id="sizeSlider" min="0" max="0" step="1">
+        </div>
+        <div class="slider-row">
+          <label>Not touched in <span class="val" id="ageVal">—</span></label>
+          <input type="range" id="ageSlider" min="0" max="0" step="1">
+        </div>
+      </div>
+      <div class="presets" id="presets"></div>
+    </div>
+
+    <!-- EXCLUSIONS -->
+    <div class="panel">
+      <div class="eyebrow">Excluded folders</div>
+      <div class="excl-row">
+        <input type="text" id="exclInput" placeholder="e.g. node_modules or Downloads/old-exports">
+        <button class="btn ghost small" id="exclAddBtn">Exclude</button>
+      </div>
+      <div class="excl-empty" id="exclEmpty">Nothing excluded — every folder is included in the results below. Type a folder name or path above, or use the "exclude" button on any row in the table.</div>
+      <div class="excl-list" id="exclList"></div>
+      <div class="excl-stats hidden" id="exclStats"></div>
+    </div>
+
+    <!-- SUMMARY STAMPS -->
+    <div class="stamps-row">
+      <div class="panel stamp-box">
+        <div class="label">Total scanned</div>
+        <div class="big" id="sumScanned">—</div>
+        <div class="sub" id="sumScannedCount">—</div>
+      </div>
+      <div class="panel stamp-box">
+        <div class="label">Matches these thresholds</div>
+        <div class="big amber" id="sumStale">—</div>
+        <div class="sub" id="sumStaleCount">—</div>
+      </div>
+      <div class="panel stamp-box">
+        <div class="label">Largest cluster found</div>
+        <div class="big" id="sumBiggestGroup">—</div>
+        <div class="sub" id="sumBiggestGroupSub">—</div>
+      </div>
+    </div>
+
+    <!-- CHART -->
+    <div class="panel">
+      <div class="chart-title">
+        <h3>Top offenders</h3>
+        <span>by size, top 20</span>
+      </div>
+      <div id="chart"></div>
+    </div>
+
+    <!-- TABLE -->
+    <div class="panel">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:36px;"></th>
+              <th data-sort="name">Name / pattern</th>
+              <th data-sort="size">Size</th>
+              <th data-sort="age">Last touched</th>
+              <th>Path</th>
+              <th style="width:70px;"></th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+        <div class="empty-state hidden" id="emptyState">Nothing matches these thresholds — try lowering them.</div>
+      </div>
+      <div class="footer-row">
+        <div class="note"><b>Heads up —</b> this tool only identifies files. Nothing gets deleted here; review the list and remove files yourself in Finder/Explorer.</div>
+        <button class="btn ghost small" id="exportBtn">Export CSV</button>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- thresholds lookup tables ----------
+  var SIZE_STEPS = [
+    {v:0,               l:"any size"},
+    {v:1*1024*1024,     l:"1 MB+"},
+    {v:10*1024*1024,    l:"10 MB+"},
+    {v:50*1024*1024,    l:"50 MB+"},
+    {v:100*1024*1024,   l:"100 MB+"},
+    {v:250*1024*1024,   l:"250 MB+"},
+    {v:500*1024*1024,   l:"500 MB+"},
+    {v:1024*1024*1024,  l:"1 GB+"},
+    {v:2*1024*1024*1024,l:"2 GB+"},
+    {v:5*1024*1024*1024,l:"5 GB+"},
+    {v:10*1024*1024*1024,l:"10 GB+"},
+    {v:25*1024*1024*1024,l:"25 GB+"},
+    {v:50*1024*1024*1024,l:"50 GB+"}
+  ];
+  var AGE_STEPS = [
+    {v:0,    l:"any time"},
+    {v:30,   l:"1 month"},
+    {v:90,   l:"3 months"},
+    {v:180,  l:"6 months"},
+    {v:365,  l:"1 year"},
+    {v:730,  l:"2 years"},
+    {v:1095, l:"3 years"},
+    {v:1460, l:"4 years"},
+    {v:1825, l:"5 years"}
+  ];
+  var PRESETS = [
+    {label:"Small & old — 10MB+, 3mo+", sizeIdx:2, ageIdx:2},
+    {label:"Medium — 100MB+, 6mo+",     sizeIdx:4, ageIdx:3},
+    {label:"Large — 1GB+, 1yr+",        sizeIdx:7, ageIdx:4},
+    {label:"Massive — 10GB+, 2yr+",     sizeIdx:10, ageIdx:5}
+  ];
+  var DEFAULT_SIZE_IDX = 4; // 100MB+
+  var DEFAULT_AGE_IDX  = 3; // 6 months
+
+  // ---------- state ----------
+  var state = {
+    rawFiles: null,     // [{name, base, ext, dir, size, mtime}]
+    groups: [],         // structural groups (2+ files sharing dir+pattern+ext)
+    singles: [],         // ungrouped files
+    sizeIdx: DEFAULT_SIZE_IDX,
+    ageIdx: DEFAULT_AGE_IDX,
+    sortKey: "size",
+    sortDir: "desc",
+    expanded: {},        // groupKey -> bool
+    exclusions: []        // array of folder path fragments to hide from results
+  };
+
+  // ---------- helpers ----------
+  function fmtBytes(n){
+    if(n < 1024) return n + " B";
+    var units = ["KB","MB","GB","TB"];
+    var val = n;
+    for(var i=0;i<units.length;i++){
+      val = val/1024;
+      if(val < 1024 || i===units.length-1){
+        return val.toFixed(val < 10 ? 2 : (val<100?1:0)) + " " + units[i];
+      }
+    }
+  }
+  function fmtAge(days){
+    if(days < 1) return "today";
+    if(days < 30) return days + "d ago";
+    if(days < 365) return Math.round(days/30) + "mo ago";
+    var yrs = days/365;
+    return (yrs<10 ? yrs.toFixed(1) : Math.round(yrs)) + "yr ago";
+  }
+  function fmtDate(ms){
+    var d = new Date(ms);
+    return d.toLocaleDateString(undefined, {year:"numeric", month:"short", day:"numeric"});
+  }
+  function daysSince(ms){
+    return Math.floor((Date.now() - ms) / 86400000);
+  }
+  function esc(s){
+    var div = document.createElement("div");
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  // ---------- DOM refs ----------
+  var pickBtn = document.getElementById("pickBtn");
+  var folderInput = document.getElementById("folderInput");
+  var dropzone = document.getElementById("dropzone");
+  var dropPanel = document.getElementById("dropPanel");
+  var sweepWrap = document.getElementById("sweepWrap");
+  var scanningLabel = document.getElementById("scanningLabel");
+  var resultsEl = document.getElementById("results");
+  var stampStatus = document.getElementById("stampStatus");
+  var stampCount = document.getElementById("stampCount");
+  var stampDate = document.getElementById("stampDate");
+
+  var sizeSlider = document.getElementById("sizeSlider");
+  var ageSlider = document.getElementById("ageSlider");
+  var sizeVal = document.getElementById("sizeVal");
+  var ageVal = document.getElementById("ageVal");
+  var presetsEl = document.getElementById("presets");
+
+  var sumScanned = document.getElementById("sumScanned");
+  var sumScannedCount = document.getElementById("sumScannedCount");
+  var sumStale = document.getElementById("sumStale");
+  var sumStaleCount = document.getElementById("sumStaleCount");
+  var sumBiggestGroup = document.getElementById("sumBiggestGroup");
+  var sumBiggestGroupSub = document.getElementById("sumBiggestGroupSub");
+
+  var exclInput = document.getElementById("exclInput");
+  var exclAddBtn = document.getElementById("exclAddBtn");
+  var exclList = document.getElementById("exclList");
+  var exclEmpty = document.getElementById("exclEmpty");
+  var exclStats = document.getElementById("exclStats");
+
+  var chartEl = document.getElementById("chart");
+  var tableBody = document.getElementById("tableBody");
+  var emptyState = document.getElementById("emptyState");
+  var exportBtn = document.getElementById("exportBtn");
+
+  sizeSlider.max = SIZE_STEPS.length - 1;
+  ageSlider.max = AGE_STEPS.length - 1;
+  sizeSlider.value = state.sizeIdx;
+  ageSlider.value = state.ageIdx;
+
+  // ---------- preset pills ----------
+  PRESETS.forEach(function(p, i){
+    var pill = document.createElement("div");
+    pill.className = "pill";
+    pill.textContent = p.label;
+    pill.addEventListener("click", function(){
+      state.sizeIdx = p.sizeIdx;
+      state.ageIdx = p.ageIdx;
+      sizeSlider.value = p.sizeIdx;
+      ageSlider.value = p.ageIdx;
+      syncThresholdLabels();
+      highlightPresets();
+      recompute();
+    });
+    presetsEl.appendChild(pill);
+  });
+  function highlightPresets(){
+    var kids = presetsEl.children;
+    for(var i=0;i<kids.length;i++){
+      var p = PRESETS[i];
+      kids[i].classList.toggle("active", p.sizeIdx === state.sizeIdx && p.ageIdx === state.ageIdx);
+    }
+  }
+
+  function syncThresholdLabels(){
+    sizeVal.textContent = SIZE_STEPS[state.sizeIdx].l;
+    ageVal.textContent = AGE_STEPS[state.ageIdx].l;
+  }
+
+  // ---------- exclusions ----------
+  function isExcluded(dir){
+    var d = dir.toLowerCase();
+    for(var i=0;i<state.exclusions.length;i++){
+      var norm = state.exclusions[i].toLowerCase();
+      if(d === norm || d.indexOf(norm + "/") === 0) return true;
+      var segments = d.split("/");
+      if(segments.indexOf(norm) !== -1) return true;
+    }
+    return false;
+  }
+
+  function addExclusion(raw){
+    var val = (raw || "").trim().replace(/^\/+|\/+$/g, "");
+    if(!val) return;
+    var already = state.exclusions.some(function(e){ return e.toLowerCase() === val.toLowerCase(); });
+    if(!already) state.exclusions.push(val);
+    exclInput.value = "";
+    renderExclusions();
+    if(state.rawFiles) recompute();
+  }
+
+  function removeExclusion(idx){
+    state.exclusions.splice(idx, 1);
+    renderExclusions();
+    if(state.rawFiles) recompute();
+  }
+
+  function renderExclusions(){
+    exclList.innerHTML = "";
+    exclEmpty.classList.toggle("hidden", state.exclusions.length > 0);
+    state.exclusions.forEach(function(excl, idx){
+      var pill = document.createElement("div");
+      pill.className = "excl-pill";
+      var span = document.createElement("span");
+      span.textContent = excl;
+      var btn = document.createElement("button");
+      btn.setAttribute("aria-label", "Remove exclusion for " + excl);
+      btn.textContent = "×";
+      btn.addEventListener("click", function(){ removeExclusion(idx); });
+      pill.appendChild(span);
+      pill.appendChild(btn);
+      exclList.appendChild(pill);
+    });
+    if(state.exclusions.length > 0 && state.rawFiles){
+      var count = 0, size = 0;
+      state.rawFiles.forEach(function(f){ if(isExcluded(f.dir)){ count++; size += f.size; } });
+      exclStats.textContent = "Hiding " + count.toLocaleString() + " files (" + fmtBytes(size) + ") across " + state.exclusions.length + " excluded folder" + (state.exclusions.length===1?"":"s") + ".";
+      exclStats.classList.remove("hidden");
+    } else {
+      exclStats.classList.add("hidden");
+    }
+  }
+
+  exclAddBtn.addEventListener("click", function(){ addExclusion(exclInput.value); });
+  exclInput.addEventListener("keydown", function(e){
+    if(e.key === "Enter"){ e.preventDefault(); addExclusion(exclInput.value); }
+  });
+
+  sizeSlider.addEventListener("input", function(){
+    state.sizeIdx = parseInt(sizeSlider.value, 10);
+    syncThresholdLabels();
+    highlightPresets();
+    recompute();
+  });
+  ageSlider.addEventListener("input", function(){
+    state.ageIdx = parseInt(ageSlider.value, 10);
+    syncThresholdLabels();
+    highlightPresets();
+    recompute();
+  });
+
+  // ---------- folder selection ----------
+  pickBtn.addEventListener("click", function(){ folderInput.click(); });
+
+  folderInput.addEventListener("change", function(){
+    var files = folderInput.files;
+    if(!files || files.length === 0) return;
+
+    scanningLabel.style.display = "block";
+    sweepWrap.classList.remove("hidden");
+    pickBtn.disabled = true;
+
+    // let the UI paint the scanning state before the (possibly heavy) loop
+    requestAnimationFrame(function(){
+      setTimeout(function(){
+        ingest(files);
+      }, 50);
+    });
+  });
+
+  function ingest(fileList){
+    var rawFiles = [];
+    for(var i=0;i<fileList.length;i++){
+      var f = fileList[i];
+      var rel = f.webkitRelativePath || f.name;
+      var parts = rel.split("/");
+      var name = parts[parts.length-1];
+      var dir = parts.slice(0, -1).join("/") || parts[0];
+      var dotIdx = name.lastIndexOf(".");
+      var base = dotIdx > 0 ? name.slice(0, dotIdx) : name;
+      var ext = dotIdx > 0 ? name.slice(dotIdx+1).toLowerCase() : "";
+      rawFiles.push({
+        name: name,
+        base: base,
+        ext: ext,
+        dir: dir,
+        path: rel,
+        size: f.size,
+        mtime: f.lastModified
+      });
+    }
+    state.rawFiles = rawFiles;
+    buildStructuralGroups();
+    finishScan();
+  }
+
+  function buildStructuralGroups(){
+    var map = {};
+    state.rawFiles.forEach(function(file){
+      var pattern = file.base.replace(/\d+/g, "#");
+      var key = file.dir + "|" + pattern + "|" + file.ext;
+      if(!map[key]) map[key] = { key:key, dir:file.dir, pattern: pattern + (file.ext ? "."+file.ext : ""), ext:file.ext, files: [] };
+      map[key].files.push(file);
+    });
+    var groups = [];
+    var singles = [];
+    Object.keys(map).forEach(function(k){
+      var g = map[k];
+      if(g.files.length >= 2){
+        var totalSize = 0, oldestMtime = Infinity, newestMtime = -Infinity;
+        g.files.forEach(function(f){
+          totalSize += f.size;
+          if(f.mtime < oldestMtime) oldestMtime = f.mtime;
+          if(f.mtime > newestMtime) newestMtime = f.mtime;
+        });
+        g.totalSize = totalSize;
+        g.oldestMtime = oldestMtime;
+        g.newestMtime = newestMtime;
+        g.files.sort(function(a,b){ return b.size - a.size; });
+        groups.push(g);
+      } else {
+        singles.push(g.files[0]);
+      }
+    });
+    state.groups = groups;
+    state.singles = singles;
+  }
+
+  function finishScan(){
+    sweepWrap.classList.add("hidden");
+    scanningLabel.style.display = "none";
+    pickBtn.disabled = false;
+
+    var count = state.rawFiles.length;
+    stampStatus.textContent = count > 0 ? "SCAN COMPLETE" : "FOLDER EMPTY";
+    stampCount.textContent = count.toLocaleString();
+    stampDate.textContent = fmtDate(Date.now());
+
+    // collapse dropzone into a compact loaded strip
+    var topFolder = count > 0 ? state.rawFiles[0].dir.split("/")[0] : "folder";
+    dropPanel.innerHTML =
+      '<div class="loaded-strip">' +
+        '<div class="info"><b>' + esc(topFolder) + '</b> — ' + count.toLocaleString() + ' files loaded</div>' +
+        '<button class="btn ghost small" id="rescanBtn">Scan a different folder</button>' +
+      '</div>';
+    document.getElementById("rescanBtn").addEventListener("click", resetAll);
+
+    if(count === 0){
+      resultsEl.classList.add("hidden");
+      return;
+    }
+
+    resultsEl.classList.remove("hidden");
+    syncThresholdLabels();
+    highlightPresets();
+    renderExclusions();
+    recompute();
+  }
+
+  function resetAll(){
+    state.rawFiles = null;
+    state.groups = [];
+    state.singles = [];
+    state.expanded = {};
+    state.exclusions = [];
+    resultsEl.classList.add("hidden");
+    stampStatus.textContent = "AWAITING FOLDER";
+    stampCount.textContent = "—";
+    stampDate.textContent = "—";
+    dropPanel.innerHTML =
+      '<div class="dropzone" id="dropzone">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg>' +
+        '<h2>Select a folder to scan</h2>' +
+        '<p class="hint">Nothing is uploaded — the scan runs entirely in this browser tab.</p>' +
+        '<div style="margin-top:18px;"><button class="btn" id="pickBtn">Choose folder</button></div>' +
+        '<div class="sweep-wrap hidden" id="sweepWrap"><div class="sweep-bar"></div></div>' +
+        '<p class="hint" id="scanningLabel" style="display:none;">Reading files…</p>' +
+      '</div>';
+    // rebind refs that were replaced
+    pickBtn = document.getElementById("pickBtn");
+    sweepWrap = document.getElementById("sweepWrap");
+    scanningLabel = document.getElementById("scanningLabel");
+    pickBtn.addEventListener("click", function(){ folderInput.click(); });
+    folderInput.value = "";
+  }
+
+  // ---------- recompute: filter + sort + render ----------
+  function recompute(){
+    var minSize = SIZE_STEPS[state.sizeIdx].v;
+    var minAge = AGE_STEPS[state.ageIdx].v;
+
+    var items = [];
+
+    state.groups.forEach(function(g){
+      if(isExcluded(g.dir)) return;
+      var age = daysSince(g.newestMtime); // conservative: even the newest member must qualify
+      if(age >= minAge && g.totalSize >= minSize){
+        items.push({
+          type:"group",
+          key:g.key,
+          name:g.pattern,
+          count:g.files.length,
+          size:g.totalSize,
+          mtime:g.newestMtime,
+          oldestMtime:g.oldestMtime,
+          dir:g.dir,
+          files:g.files
+        });
+      }
+    });
+    state.singles.forEach(function(f){
+      if(isExcluded(f.dir)) return;
+      var age = daysSince(f.mtime);
+      if(age >= minAge && f.size >= minSize){
+        items.push({
+          type:"file",
+          key:f.path,
+          name:f.name,
+          count:1,
+          size:f.size,
+          mtime:f.mtime,
+          dir:f.dir
+        });
+      }
+    });
+
+    sortItems(items);
+    state.displayItems = items;
+    render();
+  }
+
+  function sortItems(items){
+    var key = state.sortKey, dir = state.sortDir === "asc" ? 1 : -1;
+    items.sort(function(a,b){
+      var av, bv;
+      if(key === "name"){ av = a.name.toLowerCase(); bv = b.name.toLowerCase(); return av < bv ? -1*dir : av > bv ? 1*dir : 0; }
+      if(key === "age"){ av = a.mtime; bv = b.mtime; return (av - bv) * dir * -1; } // older first when desc
+      av = a.size; bv = b.size;
+      return (av - bv) * dir;
+    });
+  }
+
+  // ---------- render ----------
+  function render(){
+    var items = state.displayItems;
+
+    var totalScannedSize = 0;
+    state.rawFiles.forEach(function(f){ totalScannedSize += f.size; });
+
+    var staleSize = 0, staleCount = 0;
+    items.forEach(function(it){ staleSize += it.size; staleCount += it.count; });
+
+    sumScanned.textContent = fmtBytes(totalScannedSize);
+    sumScannedCount.textContent = state.rawFiles.length.toLocaleString() + " files total";
+    sumStale.textContent = fmtBytes(staleSize);
+    sumStaleCount.textContent = staleCount.toLocaleString() + " files match";
+
+    var biggestGroup = null;
+    items.forEach(function(it){
+      if(it.type === "group" && (!biggestGroup || it.size > biggestGroup.size)) biggestGroup = it;
+    });
+    if(biggestGroup){
+      sumBiggestGroup.textContent = fmtBytes(biggestGroup.size);
+      sumBiggestGroupSub.textContent = biggestGroup.name + " · " + biggestGroup.count + " files";
+    } else {
+      sumBiggestGroup.textContent = "—";
+      sumBiggestGroupSub.textContent = "no clusters at these thresholds";
+    }
+
+    renderChart(items);
+    renderTable(items);
+  }
+
+  function renderChart(items){
+    chartEl.innerHTML = "";
+    if(items.length === 0) return;
+    var top = items.slice().sort(function(a,b){ return b.size - a.size; }).slice(0, 20);
+    var max = top[0].size || 1;
+    top.forEach(function(it){
+      var row = document.createElement("div");
+      row.className = "bar-row";
+      var pct = Math.max((it.size/max)*100, 1.5);
+      row.innerHTML =
+        '<div class="bar-label" title="'+esc(it.name)+'">'+esc(it.name)+(it.type==="group" ? " ("+it.count+")" : "")+'</div>' +
+        '<div class="bar-track"><div class="bar-fill" style="width:'+pct.toFixed(1)+'%;"></div></div>' +
+        '<div class="bar-size">'+fmtBytes(it.size)+'</div>';
+      chartEl.appendChild(row);
+    });
+  }
+
+  function renderTable(items){
+    tableBody.innerHTML = "";
+    emptyState.classList.toggle("hidden", items.length > 0);
+    if(items.length === 0) return;
+
+    items.forEach(function(it){
+      var tr = document.createElement("tr");
+      tr.className = it.type === "group" ? "group-row" : "file-row";
+
+      var chevHtml = it.type === "group"
+        ? '<svg class="chev'+(state.expanded[it.key]?" open":"")+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>'
+        : '';
+
+      tr.innerHTML =
+        '<td>'+chevHtml+'</td>' +
+        '<td><div class="name-cell"><span class="fname">'+esc(it.name)+'</span>' +
+            (it.type==="group" ? '<span class="tag">'+it.count+' files</span>' : '') +
+        '</div></td>' +
+        '<td class="size-cell">'+fmtBytes(it.size)+'</td>' +
+        '<td class="age-cell">'+fmtDate(it.mtime)+' · '+fmtAge(daysSince(it.mtime))+'</td>' +
+        '<td class="path-cell" title="'+esc(it.dir)+'">'+esc(it.dir)+'</td>' +
+        '<td></td>';
+
+      if(it.type === "group"){
+        tr.addEventListener("click", function(){
+          state.expanded[it.key] = !state.expanded[it.key];
+          renderTable(state.displayItems);
+        });
+      }
+
+      var exclBtn = document.createElement("button");
+      exclBtn.className = "excl-btn";
+      exclBtn.textContent = "Exclude";
+      exclBtn.title = "Hide everything in \"" + it.dir + "\" from results";
+      exclBtn.addEventListener("click", function(e){
+        e.stopPropagation();
+        addExclusion(it.dir);
+      });
+      tr.lastElementChild.appendChild(exclBtn);
+
+      tableBody.appendChild(tr);
+
+      if(it.type === "group" && state.expanded[it.key]){
+        it.files.forEach(function(f){
+          var sub = document.createElement("tr");
+          sub.className = "sub-row";
+          sub.innerHTML =
+            '<td></td>' +
+            '<td><div class="name-cell"><span class="fname">'+esc(f.name)+'</span></div></td>' +
+            '<td class="size-cell">'+fmtBytes(f.size)+'</td>' +
+            '<td class="age-cell">'+fmtDate(f.mtime)+' · '+fmtAge(daysSince(f.mtime))+'</td>' +
+            '<td class="path-cell">'+esc(f.dir)+'</td>' +
+            '<td></td>';
+          tableBody.appendChild(sub);
+        });
+      }
+    });
+  }
+
+  // ---------- sortable headers ----------
+  document.querySelectorAll("th[data-sort]").forEach(function(th){
+    th.addEventListener("click", function(){
+      var key = th.getAttribute("data-sort");
+      if(state.sortKey === key){
+        state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
+      } else {
+        state.sortKey = key;
+        state.sortDir = key === "name" ? "asc" : "desc";
+      }
+      document.querySelectorAll("th[data-sort] .arrow").forEach(function(a){ a.remove(); });
+      var arrow = document.createElement("span");
+      arrow.className = "arrow";
+      arrow.textContent = state.sortDir === "asc" ? "↑" : "↓";
+      th.appendChild(arrow);
+      if(state.displayItems){
+        sortItems(state.displayItems);
+        renderTable(state.displayItems);
+      }
+    });
+  });
+
+  // ---------- CSV export ----------
+  exportBtn.addEventListener("click", function(){
+    if(!state.displayItems || state.displayItems.length === 0) return;
+    var rows = [["Type","Name / Pattern","Files in group","Size (bytes)","Size","Newest file touched","Age (days)","Path"]];
+    state.displayItems.forEach(function(it){
+      rows.push([
+        it.type,
+        it.name,
+        it.count,
+        it.size,
+        fmtBytes(it.size),
+        fmtDate(it.mtime),
+        daysSince(it.mtime),
+        it.dir
+      ]);
+    });
+    var csv = rows.map(function(r){
+      return r.map(function(cell){
+        var s = String(cell).replace(/"/g,'""');
+        return /[",\n]/.test(s) ? '"'+s+'"' : s;
+      }).join(",");
+    }).join("\n");
+    var blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = "space-hog-finder-results.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+})();
+</script>
+</body>
+</html>
